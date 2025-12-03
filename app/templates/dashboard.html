@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Inventory Management System{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <h2 class="mb-4"><i class="bi bi-speedometer2"></i> Dashboard</h2>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-white bg-primary">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title">Total Products</h6>
+                            <h2 class="mb-0" id="totalProducts">0</h2>
+                        </div>
+                        <i class="bi bi-box display-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-success">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title">Total Stock Value</h6>
+                            <h2 class="mb-0" id="totalValue">₹0</h2>
+                        </div>
+                        <i class="bi bi-currency-rupee display-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-warning">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title">Low Stock Items</h6>
+                            <h2 class="mb-0" id="lowStock">0</h2>
+                        </div>
+                        <i class="bi bi-exclamation-triangle display-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-danger">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title">Out of Stock</h6>
+                            <h2 class="mb-0" id="outOfStock">0</h2>
+                        </div>
+                        <i class="bi bi-x-circle display-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-bar-chart"></i> Stock by Category</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="categoryChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-pie-chart"></i> Transaction Types</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="transactionChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Transactions -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-clock-history"></i> Recent Transactions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Product</th>
+                                    <th>Type</th>
+                                    <th>Quantity</th>
+                                    <th>By</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recentTransactions">
+                                <tr>
+                                    <td colspan="5" class="text-center">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    checkAuth();
+    loadDashboardData();
+
+    function loadDashboardData() {
+        $.ajax({
+            url: '/api/reports/dashboard-stats',
+            method: 'GET',
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') },
+            success: function(response) {
+                if (response.success) {
+                    updateSummaryCards(response.data.stock_summary);
+                    $('#lowStock').text(response.data.low_stock_count);
+                    loadRecentTransactions(response.data.recent_transactions);
+                }
+            }
+        });
+
+        // Load category chart data
+        $.ajax({
+            url: '/api/reports/category-wise',
+            method: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    createCategoryChart(response.data);
+                }
+            }
+        });
+    }
+
+    function updateSummaryCards(summary) {
+        $('#totalProducts').text(summary.total_products || 0);
+        $('#totalValue').text('₹' + formatNumber(summary.total_value || 0));
+        $('#outOfStock').text(summary.out_of_stock_count || 0);
+    }
+
+    function loadRecentTransactions(transactions) {
+        const tbody = $('#recentTransactions');
+        tbody.empty();
+
+        if (transactions.length === 0) {
+            tbody.append('<tr><td colspan="5" class="text-center">No recent transactions</td></tr>');
+            return;
+        }
+
+        transactions.forEach(function(t) {
+            const badge = t.transaction_type === 'STOCK_IN' ? 'bg-success' :
+                         t.transaction_type === 'STOCK_OUT' ? 'bg-danger' : 'bg-warning';
+            const row = `
+                <tr>
+                    <td>${formatDateTime(t.transaction_date)}</td>
+                    <td>${t.product_name}</td>
+                    <td><span class="badge ${badge}">${t.transaction_type}</span></td>
+                    <td>${t.quantity}</td>
+                    <td>${t.created_by}</td>
+                </tr>
+            `;
+            tbody.append(row);
+        });
+    }
+
+    function createCategoryChart(data) {
+        const labels = data.map(d => d.category_name);
+        const values = data.map(d => d.total_units || 0);
+
+        new Chart(document.getElementById('categoryChart'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Stock Quantity',
+                    data: values,
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+    }
+});
+</script>
+{% endblock %}
